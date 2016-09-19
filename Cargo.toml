@@ -1,0 +1,10 @@
+[package]
+name = "gskkserv"
+version = "0.1.0"
+authors = ["Kota Yoshitsugu <yoshitsugu@users.noreply.github.com>"]
+
+[dependencies]
+hyper = "*"
+rustc-serialize = "*"
+encoding = "*"
+docopt = "*"
