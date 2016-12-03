@@ -4,6 +4,7 @@ extern crate encoding;
 extern crate docopt;
 
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::io;
 use std::io::Read;
@@ -15,7 +16,7 @@ use rustc_serialize::json::Json;
 use encoding::{Encoding, DecoderTrap, EncoderTrap};
 use encoding::all::EUC_JP;
 use docopt::Docopt;
-
+use std::collections::HashMap;
 
 const CLIENT_END: u8       = b'0';
 const CLIENT_REQUEST: u8   = b'1';
@@ -74,7 +75,7 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     return Ok(r);
 }
 
-fn handle_client(mut stream: TcpStream) {
+fn handle_client(mut stream: TcpStream, mut cache: MutexGuard<HashMap<Vec<u8>, Vec<u8>>>) {
     loop {
         let mut read = [0; 512];
         match stream.read(&mut read) {
@@ -87,13 +88,22 @@ fn handle_client(mut stream: TcpStream) {
                         stream.write(&[b'0',b'\n']).unwrap();
                     }
                     CLIENT_REQUEST => {
-                        match search(&read[1..(n-1)]) {
-                            Ok(result) => {
-                                stream.write(result.as_slice()).unwrap();
-                            }
-                            Err(err) => {
-                                println!("{:?}", err);
-                                stream.write(&[b'0',b'\n']).unwrap();
+                        let cache_key = read[1..(n-1)].to_vec();
+                        // let stdout = io::stdout();
+                        if cache.contains_key(&cache_key) {
+                            // writeln!(&mut stdout.lock(), "hit!").unwrap();
+                            stream.write(cache.get(&cache_key).unwrap()).unwrap();
+                        } else {
+                            // writeln!(&mut stdout.lock(), "not hit...").unwrap();
+                            match search(&read[1..(n-1)]) {
+                                Ok(result) => {
+                                    cache.insert(read[1..(n-1)].to_vec(), result.clone());
+                                    stream.write(result.as_slice()).unwrap();
+                                }
+                                Err(err) => {
+                                    println!("{:?}", err);
+                                    stream.write(&[b'0',b'\n']).unwrap();
+                                }
                             }
                         }
                     }
@@ -133,11 +143,14 @@ fn main() {
     let host_and_port = format!("{}:{}", args.get_str("--host"),args.get_str("--port"));
     println!("listen on {}", &host_and_port);
     let listener = TcpListener::bind(&host_and_port[..]).unwrap();
+    let cache: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
+                let cache = cache.clone();
                 thread::spawn(move || {
-                    handle_client(stream);
+                    let cache = cache.lock().unwrap();
+                    handle_client(stream, cache);
                 });
             }
             Err(_) => {
