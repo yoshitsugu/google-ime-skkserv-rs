@@ -2,6 +2,7 @@ extern crate hyper;
 extern crate rustc_serialize;
 extern crate encoding;
 extern crate docopt;
+extern crate daemonize;
 
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -17,6 +18,7 @@ use encoding::{Encoding, DecoderTrap, EncoderTrap};
 use encoding::all::EUC_JP;
 use docopt::Docopt;
 use std::collections::HashMap;
+use daemonize::Daemonize;
 
 const CLIENT_END: u8       = b'0';
 const CLIENT_REQUEST: u8   = b'1';
@@ -117,7 +119,7 @@ fn handle_client(mut stream: TcpStream, mut cache: MutexGuard<HashMap<Vec<u8>, V
                         stream.write(&[b'0',b'\n']).unwrap();
                     }
                 }
-                        
+                
             }
             Err(err) => {
                 println!("{:?}", err);
@@ -127,23 +129,13 @@ fn handle_client(mut stream: TcpStream, mut cache: MutexGuard<HashMap<Vec<u8>, V
     }
 }
 
-static USAGE: &'static str = "
-Usage:
-  gskkserv [--host=<host>] [--port=<port>]
+type CacheHashMap = Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>;
 
-Options:
-  -h --host=<host>     Server Host [default: 0.0.0.0]
-  -p --port=<port>     Server Port [default: 55100]
-";
-
-fn main() {
-    let args = Docopt::new(USAGE)
-                      .and_then(|dopt| dopt.parse())
-                      .unwrap_or_else(|e| e.exit());
+fn listen(args: &docopt::ArgvMap) {
     let host_and_port = format!("{}:{}", args.get_str("--host"),args.get_str("--port"));
     println!("listen on {}", &host_and_port);
     let listener = TcpListener::bind(&host_and_port[..]).unwrap();
-    let cache: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let cache: CacheHashMap = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -157,5 +149,34 @@ fn main() {
                 println!("Error!");
             }
         }
+    }
+}
+
+static USAGE: &'static str = "
+Usage:
+  gskkserv [--host=<host>] [--port=<port>] [-d]
+
+Options:
+  -h --host=<host>     Server Host [default: 0.0.0.0]
+  -p --port=<port>     Server Port [default: 55100]
+  -d                   Deamonize
+";
+
+fn main() {
+    let args = Docopt::new(USAGE)
+        .and_then(|dopt| dopt.parse())
+        .unwrap_or_else(|e| e.exit());
+    if args.get_bool("-d") {
+        let daemonize = Daemonize::new()
+            .pid_file("/tmp/gskkserv.pid")
+            .working_directory("/tmp");
+        match daemonize.start() {
+            Ok(_) => {
+                listen(&args);
+            }
+            Err(e) => println!("{}", e),
+        }
+    } else {
+        listen(&args);
     }
 }
