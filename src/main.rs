@@ -27,6 +27,8 @@ const CLIENT_HOST: u8      = b'3';
 //const CLIENT_COMP: u8      = 4;
 
 const SERVER_VERSION: &'static str = "Google IME SKK Server in Rust.0.0";
+const PID_DIR: &'static str = "/tmp/gskkserv.pid";
+const WORK_DIR: &'static str = "/tmp";
 
 #[derive(Debug)]
 enum SearchError {
@@ -63,13 +65,14 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     };
     let mut s = String::new();
     try!(res.read_to_string(&mut s));
-    let json = try!(Json::from_str(s.as_str()));
-    let array = try!(json.as_array().ok_or("cannot found expected json structure".to_owned()));
-    let kanji = try!(array[0].as_array().ok_or("cannot found expected json structure".to_owned()));
-    let _kanjis = try!(kanji[1].as_array().ok_or("cannot found expected json structure".to_owned()));
+    let json = Json::from_str(s.as_str())?;
+    let json_error_msg = "cannot found expected json structure".to_string();
+    let array = json.as_array().ok_or(json_error_msg.clone())?;
+    let kanji = array[0].as_array().ok_or(json_error_msg.clone())?;
+    let _kanjis = kanji[1].as_array().ok_or(json_error_msg.clone())?;
     let mut kanjis = "1".to_string();
     for _k in _kanjis {
-        let _ks = try!(_k.as_string().ok_or("cannot found expected json structure".to_owned()));
+        let _ks = _k.as_string().ok_or(json_error_msg.clone())?;
         kanjis = format!("{}/{}", kanjis, _ks);
     }
     kanjis = format!("{}\n", kanjis);
@@ -168,8 +171,8 @@ fn main() {
         .unwrap_or_else(|e| e.exit());
     if args.get_bool("-d") {
         let daemonize = Daemonize::new()
-            .pid_file("/tmp/gskkserv.pid")
-            .working_directory("/tmp");
+            .pid_file(PID_DIR)
+            .working_directory(WORK_DIR);
         match daemonize.start() {
             Ok(_) => {
                 listen(&args);
