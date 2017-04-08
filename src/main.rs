@@ -3,9 +3,9 @@ extern crate rustc_serialize;
 extern crate encoding;
 extern crate docopt;
 extern crate daemonize;
+extern crate gskkserv;
 
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::io;
 use std::io::Read;
@@ -17,8 +17,8 @@ use rustc_serialize::json::Json;
 use encoding::{Encoding, DecoderTrap, EncoderTrap};
 use encoding::all::EUC_JP;
 use docopt::Docopt;
-use std::collections::HashMap;
 use daemonize::Daemonize;
+use gskkserv::cache::{new_cache, LockedCache};
 
 const CLIENT_END: u8       = b'0';
 const CLIENT_REQUEST: u8   = b'1';
@@ -29,6 +29,7 @@ const CLIENT_HOST: u8      = b'3';
 const SERVER_VERSION: &'static str = "Google IME SKK Server in Rust.0.0";
 const PID_DIR: &'static str = "/tmp/gskkserv.pid";
 const WORK_DIR: &'static str = "/tmp";
+const GOOGLE_IME_URL: &'static str = "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
 
 #[derive(Debug)]
 enum SearchError {
@@ -58,7 +59,7 @@ impl From<String> for SearchError {
 fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     let client = Client::new();
     let kana = EUC_JP.decode(&read, DecoderTrap::Ignore).unwrap();
-    let url = format!("http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text={},", &kana);
+    let url = format!("{}{}", GOOGLE_IME_URL, &kana);
     let mut res = match client.get(&url).send() {
         Ok(r) => r,
         Err(_) => return Ok(EUC_JP.encode("4\n", EncoderTrap::Ignore).unwrap())
@@ -80,7 +81,7 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     return Ok(r);
 }
 
-fn handle_client(mut stream: TcpStream, mut cache: MutexGuard<HashMap<Vec<u8>, Vec<u8>>>) {
+fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
     loop {
         let mut read = [0; 512];
         match stream.read(&mut read) {
@@ -132,13 +133,11 @@ fn handle_client(mut stream: TcpStream, mut cache: MutexGuard<HashMap<Vec<u8>, V
     }
 }
 
-type CacheHashMap = Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>;
-
 fn listen(args: &docopt::ArgvMap) {
     let host_and_port = format!("{}:{}", args.get_str("--host"),args.get_str("--port"));
     println!("listen on {}", &host_and_port);
     let listener = TcpListener::bind(&host_and_port[..]).unwrap();
-    let cache: CacheHashMap = Arc::new(Mutex::new(HashMap::new()));
+    let cache = new_cache();
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
