@@ -4,8 +4,8 @@ version = "0.1.1"
 authors = ["Kota Yoshitsugu <yoshitsugu@users.noreply.github.com>"]
 
 [dependencies]
-hyper = "*"
-rustc-serialize = "*"
-encoding = "*"
-docopt = "*"
-daemonize = "*"
+rustc-serialize = "0.3.24"
+encoding = "0.2.33"
+docopt = "0.8.3"
+daemonize = "0.2.3"
+reqwest = "0.8.5"
