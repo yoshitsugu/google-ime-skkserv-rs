@@ -3,13 +3,12 @@ use docopt::Docopt;
 use encoding::all::EUC_JP;
 use encoding::{DecoderTrap, EncoderTrap, Encoding};
 use env_logger;
-use log::{debug, error};
 use failure::Fail;
+use log::{debug, error};
 use rustc_serialize::json;
 use rustc_serialize::json::Json;
 use std::io;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
@@ -25,6 +24,7 @@ const CLIENT_HOST: u8 = b'3';
 const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.0";
 const PID_DIR: &str = "/tmp/gskkserv.pid";
 const WORK_DIR: &str = "/tmp";
+#[cfg(not(test))]
 const GOOGLE_IME_URL: &str = "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
 
 #[derive(Debug, Fail)]
@@ -64,10 +64,15 @@ impl From<reqwest::Error> for SearchError {
 }
 const JSON_ERROR_MSG: &str = "Cannot find expected json structure";
 
+#[cfg(not(test))]
+fn search_with_api(kana: &str) -> Result<String, SearchError> {
+    let url = format!("{}{}", GOOGLE_IME_URL, kana);
+    Ok(reqwest::get(&url)?.text()?)
+}
+
 fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     let kana = EUC_JP.decode(&read, DecoderTrap::Ignore).unwrap();
-    let url = format!("{}{}", GOOGLE_IME_URL, &kana);
-    let s = reqwest::get(&url)?.text()?;
+    let s = search_with_api(&kana)?;
     let json = Json::from_str(s.as_str())?;
     let array = json.as_array().ok_or(JSON_ERROR_MSG)?;
     let kanji = array[0].as_array().ok_or(JSON_ERROR_MSG)?;
@@ -179,5 +184,39 @@ fn main() {
         }
     } else {
         listen(&args);
+    }
+}
+
+#[cfg(test)]
+fn search_with_api(_kana: &str) -> Result<String, SearchError> {
+    Ok(
+        r#"[["ともえごぜん",["巴御前","ともえごぜん","トモエゴゼン"]]]"#.to_string(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::search;
+
+    use encoding::all::{EUC_JP, UTF_8};
+    use encoding::{DecoderTrap, EncoderTrap, Encoding};
+    #[test]
+    fn test_search() {
+        let utf8_bytes = EUC_JP
+            .encode("ともえごぜん", EncoderTrap::Ignore)
+            .unwrap();
+        let result = search(utf8_bytes.as_slice());
+        println!("{:?}", result);
+        assert!(result.is_ok());
+        let euc_jp_str = EUC_JP
+            .decode(result.unwrap().as_slice(), DecoderTrap::Ignore)
+            .unwrap();
+        let utf8_encoded_arr = UTF_8
+            .encode(&euc_jp_str, EncoderTrap::Ignore)
+            .unwrap();
+        assert_eq!(
+            UTF_8.decode(utf8_encoded_arr.as_slice(), DecoderTrap::Ignore).unwrap(),
+            "1/巴御前/ともえごぜん/トモエゴゼン\n"
+        )
     }
 }
