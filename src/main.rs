@@ -1,23 +1,15 @@
-extern crate daemonize;
-extern crate docopt;
-extern crate encoding;
-extern crate gskkserv;
-extern crate reqwest;
-extern crate rustc_serialize;
-
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use daemonize::Daemonize;
+use docopt::Docopt;
+use encoding::all::EUC_JP;
+use encoding::{DecoderTrap, EncoderTrap, Encoding};
+use gskkserv::cache::{new_cache, LockedCache};
+use rustc_serialize::json;
+use rustc_serialize::json::Json;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::str;
-use rustc_serialize::json;
-use rustc_serialize::json::Json;
-use encoding::{DecoderTrap, EncoderTrap, Encoding};
-use encoding::all::EUC_JP;
-use docopt::Docopt;
-use daemonize::Daemonize;
-use gskkserv::cache::{new_cache, LockedCache};
+use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 const CLIENT_END: u8 = b'0';
 const CLIENT_REQUEST: u8 = b'1';
@@ -25,18 +17,17 @@ const CLIENT_VERSION: u8 = b'2';
 const CLIENT_HOST: u8 = b'3';
 //const CLIENT_COMP: u8      = 4;
 
-const SERVER_VERSION: &'static str = "Google IME SKK Server in Rust.0.0";
-const PID_DIR: &'static str = "/tmp/gskkserv.pid";
-const WORK_DIR: &'static str = "/tmp";
-const GOOGLE_IME_URL: &'static str =
-    "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
+const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.0";
+const PID_DIR: &str = "/tmp/gskkserv.pid";
+const WORK_DIR: &str = "/tmp";
+const GOOGLE_IME_URL: &str = "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
 
 #[derive(Debug)]
 enum SearchError {
     Io(io::Error),
     Json(json::BuilderError),
-    Msg(String),
-    Request(reqwest::Error)
+    Msg(&'static str),
+    Request(reqwest::Error),
 }
 
 impl From<io::Error> for SearchError {
@@ -51,8 +42,8 @@ impl From<json::BuilderError> for SearchError {
     }
 }
 
-impl From<String> for SearchError {
-    fn from(err: String) -> SearchError {
+impl From<&'static str> for SearchError {
+    fn from(err: &'static str) -> SearchError {
         SearchError::Msg(err)
     }
 }
@@ -62,19 +53,19 @@ impl From<reqwest::Error> for SearchError {
         SearchError::Request(err)
     }
 }
+const JSON_ERROR_MSG: &str = "Cannot find expected json structure";
 
 fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     let kana = EUC_JP.decode(&read, DecoderTrap::Ignore).unwrap();
     let url = format!("{}{}", GOOGLE_IME_URL, &kana);
     let s = reqwest::get(&url)?.text()?;
     let json = Json::from_str(s.as_str())?;
-    let json_error_msg = "cannot found expected json structure".to_string();
-    let array = json.as_array().ok_or(json_error_msg.clone())?;
-    let kanji = array[0].as_array().ok_or(json_error_msg.clone())?;
-    let _kanjis = kanji[1].as_array().ok_or(json_error_msg.clone())?;
+    let array = json.as_array().ok_or(JSON_ERROR_MSG)?;
+    let kanji = array[0].as_array().ok_or(JSON_ERROR_MSG)?;
+    let _kanjis = kanji[1].as_array().ok_or(JSON_ERROR_MSG)?;
     let mut kanjis = "1".to_string();
     for _k in _kanjis {
-        let _ks = _k.as_string().ok_or(json_error_msg.clone())?;
+        let _ks = _k.as_string().ok_or(JSON_ERROR_MSG)?;
         kanjis = format!("{}/{}", kanjis, _ks);
     }
     kanjis = format!("{}\n", kanjis);
@@ -92,42 +83,42 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
                 }
                 match read[0] {
                     CLIENT_END => {
-                        stream.write(&[b'0', b'\n']).unwrap();
+                        stream.write_all(&[b'0', b'\n']).unwrap();
                     }
                     CLIENT_REQUEST => {
                         let cache_key = read[1..(n - 1)].to_vec();
                         // let stdout = io::stdout();
                         if cache.contains_key(&cache_key) {
                             // writeln!(&mut stdout.lock(), "hit!").unwrap();
-                            stream.write(cache.get(&cache_key).unwrap()).unwrap();
+                            stream.write_all(cache.get(&cache_key).unwrap()).unwrap();
                         } else {
                             // writeln!(&mut stdout.lock(), "not hit...").unwrap();
                             match search(&read[1..(n - 1)]) {
                                 Ok(result) => {
                                     cache.insert(read[1..(n - 1)].to_vec(), result.clone());
-                                    stream.write(result.as_slice()).unwrap();
+                                    stream.write_all(result.as_slice()).unwrap();
                                 }
                                 Err(err) => {
                                     println!("{:?}", err);
-                                    stream.write(&[b'0', b'\n']).unwrap();
+                                    stream.write_all(&[b'0', b'\n']).unwrap();
                                 }
                             }
                         }
                     }
                     CLIENT_VERSION => {
-                        stream.write(SERVER_VERSION.as_bytes()).unwrap();
+                        stream.write_all(SERVER_VERSION.as_bytes()).unwrap();
                     }
                     CLIENT_HOST => {
-                        stream.write("0.0.0.0".as_bytes()).unwrap();
+                        stream.write_all(b"0.0.0.0").unwrap();
                     }
                     _ => {
-                        stream.write(&[b'0', b'\n']).unwrap();
+                        stream.write_all(&[b'0', b'\n']).unwrap();
                     }
                 }
             }
             Err(err) => {
                 println!("{:?}", err);
-                stream.write(&[b'0', b'\n']).unwrap();
+                stream.write_all(&[b'0', b'\n']).unwrap();
             }
         }
     }
