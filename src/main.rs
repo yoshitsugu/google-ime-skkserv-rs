@@ -2,7 +2,9 @@ use daemonize::Daemonize;
 use docopt::Docopt;
 use encoding::all::EUC_JP;
 use encoding::{DecoderTrap, EncoderTrap, Encoding};
-use gskkserv::cache::{new_cache, LockedCache};
+use env_logger;
+use log::{debug, error};
+use failure::Fail;
 use rustc_serialize::json;
 use rustc_serialize::json::Json;
 use std::io;
@@ -10,6 +12,9 @@ use std::io::Read;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+
+
+use gskkserv::cache::{new_cache, LockedCache};
 
 const CLIENT_END: u8 = b'0';
 const CLIENT_REQUEST: u8 = b'1';
@@ -22,12 +27,16 @@ const PID_DIR: &str = "/tmp/gskkserv.pid";
 const WORK_DIR: &str = "/tmp";
 const GOOGLE_IME_URL: &str = "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
 
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 enum SearchError {
-    Io(io::Error),
-    Json(json::BuilderError),
+    #[fail(display = "{}", _0)]
+    Io(#[fail(cause)] io::Error),
+    #[fail(display = "{}", _0)]
+    Json(#[fail(cause)] json::BuilderError),
+    #[fail(display = "{}", _0)]
     Msg(&'static str),
-    Request(reqwest::Error),
+    #[fail(display = "{}", _0)]
+    Request(#[fail(cause)] reqwest::Error),
 }
 
 impl From<io::Error> for SearchError {
@@ -87,19 +96,17 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
                     }
                     CLIENT_REQUEST => {
                         let cache_key = read[1..(n - 1)].to_vec();
-                        // let stdout = io::stdout();
+                        debug!("cache_key: {:?}", &cache_key);
                         if cache.contains_key(&cache_key) {
-                            // writeln!(&mut stdout.lock(), "hit!").unwrap();
                             stream.write_all(cache.get(&cache_key).unwrap()).unwrap();
                         } else {
-                            // writeln!(&mut stdout.lock(), "not hit...").unwrap();
                             match search(&read[1..(n - 1)]) {
                                 Ok(result) => {
                                     cache.insert(read[1..(n - 1)].to_vec(), result.clone());
                                     stream.write_all(result.as_slice()).unwrap();
                                 }
                                 Err(err) => {
-                                    println!("{:?}", err);
+                                    error!("{:?}", err);
                                     stream.write_all(&[b'0', b'\n']).unwrap();
                                 }
                             }
@@ -139,7 +146,7 @@ fn listen(args: &docopt::ArgvMap) {
                 });
             }
             Err(_) => {
-                println!("Error!");
+                error!("Error!");
             }
         }
     }
@@ -156,6 +163,7 @@ Options:
 ";
 
 fn main() {
+    env_logger::init();
     let args = Docopt::new(USAGE)
         .and_then(|dopt| dopt.parse())
         .unwrap_or_else(|e| e.exit());
@@ -167,7 +175,7 @@ fn main() {
             Ok(_) => {
                 listen(&args);
             }
-            Err(e) => println!("{}", e),
+            Err(e) => eprintln!("{}", e),
         }
     } else {
         listen(&args);
