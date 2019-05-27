@@ -7,5 +7,5 @@ authors = ["Kota Yoshitsugu <yoshitsugu@users.noreply.github.com>"]
 rustc-serialize = "0.3.24"
 encoding = "0.2.33"
 docopt = "0.8.3"
-daemonize = "0.2.3"
-reqwest = "0.8.5"
+daemonize = "0.4"
+reqwest = "0.9"
