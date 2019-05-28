@@ -9,8 +9,11 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
-use gskkserv::cache::{new_cache, LockedCache};
-use gskkserv::error::SearchError;
+mod cache;
+mod error;
+
+use cache::{new_cache, LockedCache};
+use error::SearchError;
 
 enum RequestCode {
     Disconnect,
@@ -187,7 +190,8 @@ mod tests {
     use super::{
         search, create_response, SERVER_VERSION,
     };
-    use gskkserv::cache::new_cache;
+
+    use super::cache::new_cache;
 
     #[test]
     fn test_search() {
