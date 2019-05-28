@@ -1,5 +1,6 @@
 # Google IME skkserv in Rust
-SKK server for Google IME in Rust.
+SKK server for Google IME in Rust.  
+[![Build Status](https://travis-ci.org/yoshitsugu/google-ime-skkserv-rs.svg)](https://travis-ci.org/yoshitsugu/google-ime-skkserv-rs)
 
 ## Usage
 0. Prepare Rust environment.
