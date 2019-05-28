@@ -17,17 +17,18 @@ enum RequestCode {
     Convert,
     Version,
     Name,
+    Invalid(u8)
 }
 
 impl From<u8> for RequestCode {
     fn from(code: u8) -> Self {
         use RequestCode::*;
         match code {
-            0 => Disconnect,
-            1 => Convert,
-            2 => Version,
-            3 => Name,
-            _ => Disconnect,
+            b'0' => Disconnect,
+            b'1' => Convert,
+            b'2' => Version,
+            b'3' => Name,
+            code => Invalid(code),
         }
     }
 } 
@@ -46,8 +47,8 @@ fn search_with_api(kana: &str) -> Result<String, SearchError> {
     Ok(reqwest::get(&url)?.text()?)
 }
 
-fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
-    let kana = EUC_JP.decode(&read, DecoderTrap::Ignore).unwrap();
+fn search(buf: &[u8]) -> Result<Vec<u8>, SearchError> {
+    let kana = EUC_JP.decode(&buf, DecoderTrap::Ignore).unwrap();
     let s = search_with_api(&kana)?;
     let json = Json::from_str(s.as_str())?;
     let array = json.as_array().ok_or(JSON_ERROR_MSG)?;
@@ -64,20 +65,21 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
 }
 
 fn create_response<'a>(
-    read: &[u8],
+    buf: &[u8],
     n: usize,
     cache: &'a mut LockedCache,
     host_and_port: &'a str,
 ) -> &'a [u8] {
-    match RequestCode::from(read[0]) {
+    debug!("CODE: {}", buf[0]);
+    match RequestCode::from(buf[0]) {
         RequestCode::Disconnect => b"0\n",
         RequestCode::Convert => {
-            let cache_key = read[1..(n - 1)].to_vec();
+            let cache_key = buf[1..(n - 1)].to_vec();
             debug!("cache_key: {:?}", &cache_key);
             if cache.contains_key(&cache_key) {
                 cache.get(&cache_key).unwrap().as_slice()
             } else {
-                match search(&read[1..(n - 1)]) {
+                match search(&buf[1..(n - 1)]) {
                     Ok(result) => {
                         cache.insert(cache_key.clone(), result.clone());
                         cache.get(&cache_key).unwrap().as_slice()
@@ -91,19 +93,23 @@ fn create_response<'a>(
         }
         RequestCode::Version => SERVER_VERSION.as_bytes(),
         RequestCode::Name => host_and_port.as_bytes(),
+        RequestCode::Invalid(code) => {
+            error!("INVALID CODE: {}", code);
+            b"0\n"
+        }
     }
 
 }
 
 fn handle_client(mut stream: TcpStream, mut cache: LockedCache, host_and_port: &str) {
     loop {
-        let mut read = [0; 512];
-        match stream.read(&mut read) {
+        let mut buf = [0; 512];
+        match stream.read(&mut buf) {
             Ok(n) => {
                 if n == 0 {
                     break;
                 }
-                let result = create_response(&read, n, &mut cache, host_and_port);
+                let result = create_response(&buf, n, &mut cache, host_and_port);
                 stream.write_all(result).unwrap();
             }
             Err(err) => {
@@ -207,15 +213,15 @@ mod tests {
     fn test_create_response() {
         let cache = new_cache();
         assert_eq!(
-            create_response(&[0], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
+            create_response(&[b'0'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
             b"0\n"
         );
         assert_eq!(
-            create_response(&[2], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
+            create_response(&[b'2'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
             SERVER_VERSION.as_bytes()
         );
         assert_eq!(
-            create_response(&[3], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
+            create_response(&[b'3'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
             b"0.0.0.0:5555\n"
         );
     }
