@@ -33,7 +33,7 @@ impl From<u8> for RequestCode {
     }
 } 
 
-const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.1\n";
+const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.1";
 const PID_DIR: &str = "/tmp/gskkserv.pid";
 const WORK_DIR: &str = "/tmp";
 #[cfg(not(test))]
@@ -59,7 +59,7 @@ fn search(buf: &[u8]) -> Result<Vec<u8>, SearchError> {
         let _ks = _k.as_string().ok_or(JSON_ERROR_MSG)?;
         kanjis = format!("{}/{}", kanjis, _ks);
     }
-    kanjis = format!("{}\n", kanjis);
+    kanjis = format!("{}/\n", kanjis);
     let r = EUC_JP.encode(&kanjis, EncoderTrap::Ignore).unwrap();
     Ok(r)
 }
@@ -72,7 +72,7 @@ fn create_response<'a>(
 ) -> &'a [u8] {
     debug!("CODE: {}", buf[0]);
     match RequestCode::from(buf[0]) {
-        RequestCode::Disconnect => b"0\n",
+        RequestCode::Disconnect => b"0",
         RequestCode::Convert => {
             let cache_key = buf[1..(n - 1)].to_vec();
             debug!("cache_key: {:?}", &cache_key);
@@ -86,7 +86,7 @@ fn create_response<'a>(
                     }
                     Err(err) => {
                         error!("{:?}", err);
-                        b"0\n"
+                        b"0"
                     }
                 }
             }
@@ -95,7 +95,7 @@ fn create_response<'a>(
         RequestCode::Name => host_and_port.as_bytes(),
         RequestCode::Invalid(code) => {
             error!("INVALID CODE: {}", code);
-            b"0\n"
+            b"0"
         }
     }
 
@@ -114,7 +114,7 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache, host_and_port: &
             }
             Err(err) => {
                 error!("{:?}", err);
-                stream.write_all(b"0\n").unwrap();
+                stream.write_all(b"0").unwrap();
             }
         }
     }
@@ -125,12 +125,11 @@ fn listen(args: &docopt::ArgvMap) {
     println!("listen on {}", &host_and_port);
     let listener = TcpListener::bind(&host_and_port.clone()).unwrap();
     let cache = new_cache();
-    let host_and_port_n = format!("{}\n", host_and_port.clone());
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let cache = cache.clone();
-                let host_and_port = host_and_port_n.clone();
+                let host_and_port = host_and_port.clone();
                 thread::spawn(move || {
                     let cache = cache.lock().unwrap();
                     handle_client(stream, cache, &host_and_port);
@@ -205,7 +204,7 @@ mod tests {
             UTF_8
                 .decode(utf8_encoded_arr.as_slice(), DecoderTrap::Ignore)
                 .unwrap(),
-            "1/巴御前/ともえごぜん/トモエゴゼン\n"
+            "1/巴御前/ともえごぜん/トモエゴゼン/\n"
         )
     }
 
@@ -213,16 +212,16 @@ mod tests {
     fn test_create_response() {
         let cache = new_cache();
         assert_eq!(
-            create_response(&[b'0'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
-            b"0\n"
+            create_response(&[b'0'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
+            b"0"
         );
         assert_eq!(
-            create_response(&[b'2'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
+            create_response(&[b'2'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
             SERVER_VERSION.as_bytes()
         );
         assert_eq!(
-            create_response(&[b'3'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
-            b"0.0.0.0:5555\n"
+            create_response(&[b'3'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
+            b"0.0.0.0:5555"
         );
     }
 }
