@@ -15,13 +15,12 @@ use std::thread;
 
 use gskkserv::cache::{new_cache, LockedCache};
 
-const CLIENT_END: u8 = b'0';
-const CLIENT_REQUEST: u8 = b'1';
-const CLIENT_VERSION: u8 = b'2';
-const CLIENT_HOST: u8 = b'3';
-//const CLIENT_COMP: u8      = 4;
+const CLIENT_END: u8 = 0;
+const CLIENT_REQUEST: u8 = 1;
+const CLIENT_VERSION: u8 = 2;
+const CLIENT_HOST: u8 = 3;
 
-const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.0";
+const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.1\n";
 const PID_DIR: &str = "/tmp/gskkserv.pid";
 const WORK_DIR: &str = "/tmp";
 #[cfg(not(test))]
@@ -87,6 +86,34 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     Ok(r)
 }
 
+fn search_with_cache<'a>(read: &[u8], n: usize, cache: &'a mut LockedCache) -> &'a [u8] {
+    match read[0] {
+        CLIENT_END => b"0\n",
+        CLIENT_REQUEST => {
+            let cache_key = read[1..(n - 1)].to_vec();
+            debug!("cache_key: {:?}", &cache_key);
+            if cache.contains_key(&cache_key) {
+                cache.get(&cache_key).unwrap().as_slice()
+            } else {
+                match search(&read[1..(n - 1)]) {
+                    Ok(result) => {
+                        cache.insert(cache_key.clone(), result.clone());
+                        cache.get(&cache_key).unwrap().as_slice()
+                    }
+                    Err(err) => {
+                        error!("{:?}", err);
+                        b"0\n"
+                    }
+                }
+            }
+        }
+        CLIENT_VERSION => SERVER_VERSION.as_bytes(),
+        CLIENT_HOST => b"0.0.0.0\n",
+        _ => b"0\n",
+    }
+
+}
+
 fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
     loop {
         let mut read = [0; 512];
@@ -95,42 +122,12 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
                 if n == 0 {
                     break;
                 }
-                match read[0] {
-                    CLIENT_END => {
-                        stream.write_all(&[b'0', b'\n']).unwrap();
-                    }
-                    CLIENT_REQUEST => {
-                        let cache_key = read[1..(n - 1)].to_vec();
-                        debug!("cache_key: {:?}", &cache_key);
-                        if cache.contains_key(&cache_key) {
-                            stream.write_all(cache.get(&cache_key).unwrap()).unwrap();
-                        } else {
-                            match search(&read[1..(n - 1)]) {
-                                Ok(result) => {
-                                    cache.insert(read[1..(n - 1)].to_vec(), result.clone());
-                                    stream.write_all(result.as_slice()).unwrap();
-                                }
-                                Err(err) => {
-                                    error!("{:?}", err);
-                                    stream.write_all(&[b'0', b'\n']).unwrap();
-                                }
-                            }
-                        }
-                    }
-                    CLIENT_VERSION => {
-                        stream.write_all(SERVER_VERSION.as_bytes()).unwrap();
-                    }
-                    CLIENT_HOST => {
-                        stream.write_all(b"0.0.0.0").unwrap();
-                    }
-                    _ => {
-                        stream.write_all(&[b'0', b'\n']).unwrap();
-                    }
-                }
+                let result = search_with_cache(&read, n, &mut cache);
+                stream.write_all(result).unwrap();
             }
             Err(err) => {
-                println!("{:?}", err);
-                stream.write_all(&[b'0', b'\n']).unwrap();
+                error!("{:?}", err);
+                stream.write_all(b"0\n").unwrap();
             }
         }
     }
@@ -196,27 +193,47 @@ fn search_with_api(_kana: &str) -> Result<String, SearchError> {
 
 #[cfg(test)]
 mod tests {
-    use super::search;
-
     use encoding::all::{EUC_JP, UTF_8};
     use encoding::{DecoderTrap, EncoderTrap, Encoding};
+
+    use super::{
+        search, search_with_cache, CLIENT_END, CLIENT_HOST, CLIENT_VERSION, SERVER_VERSION,
+    };
+    use gskkserv::cache::new_cache;
+
     #[test]
     fn test_search() {
         let utf8_bytes = EUC_JP
             .encode("ともえごぜん", EncoderTrap::Ignore)
             .unwrap();
         let result = search(utf8_bytes.as_slice());
-        println!("{:?}", result);
         assert!(result.is_ok());
         let euc_jp_str = EUC_JP
             .decode(result.unwrap().as_slice(), DecoderTrap::Ignore)
             .unwrap();
-        let utf8_encoded_arr = UTF_8
-            .encode(&euc_jp_str, EncoderTrap::Ignore)
-            .unwrap();
+        let utf8_encoded_arr = UTF_8.encode(&euc_jp_str, EncoderTrap::Ignore).unwrap();
         assert_eq!(
-            UTF_8.decode(utf8_encoded_arr.as_slice(), DecoderTrap::Ignore).unwrap(),
+            UTF_8
+                .decode(utf8_encoded_arr.as_slice(), DecoderTrap::Ignore)
+                .unwrap(),
             "1/巴御前/ともえごぜん/トモエゴゼン\n"
         )
+    }
+
+    #[test]
+    fn test_search_with_cache() {
+        let cache = new_cache();
+        assert_eq!(
+            search_with_cache(&[CLIENT_END], 1, &mut cache.lock().unwrap()),
+            b"0\n"
+        );
+        assert_eq!(
+            search_with_cache(&[CLIENT_VERSION], 1, &mut cache.lock().unwrap()),
+            SERVER_VERSION.as_bytes()
+        );
+        assert_eq!(
+            search_with_cache(&[CLIENT_HOST], 1, &mut cache.lock().unwrap()),
+            b"0.0.0.0\n"
+        );
     }
 }
