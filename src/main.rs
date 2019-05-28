@@ -3,22 +3,34 @@ use docopt::Docopt;
 use encoding::all::EUC_JP;
 use encoding::{DecoderTrap, EncoderTrap, Encoding};
 use env_logger;
-use failure::Fail;
 use log::{debug, error};
-use rustc_serialize::json;
 use rustc_serialize::json::Json;
-use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
-
 use gskkserv::cache::{new_cache, LockedCache};
+use gskkserv::error::SearchError;
 
-const CLIENT_END: u8 = 0;
-const CLIENT_REQUEST: u8 = 1;
-const CLIENT_VERSION: u8 = 2;
-const CLIENT_HOST: u8 = 3;
+enum RequestCode {
+    Disconnect,
+    Convert,
+    Version,
+    Name,
+}
+
+impl From<u8> for RequestCode {
+    fn from(code: u8) -> Self {
+        use RequestCode::*;
+        match code {
+            0 => Disconnect,
+            1 => Convert,
+            2 => Version,
+            3 => Name,
+            _ => Disconnect,
+        }
+    }
+} 
 
 const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.1\n";
 const PID_DIR: &str = "/tmp/gskkserv.pid";
@@ -26,41 +38,6 @@ const WORK_DIR: &str = "/tmp";
 #[cfg(not(test))]
 const GOOGLE_IME_URL: &str = "http://www.google.com/transliterate?langpair=ja-Hira%7Cja&text=";
 
-#[derive(Debug, Fail)]
-enum SearchError {
-    #[fail(display = "{}", _0)]
-    Io(#[fail(cause)] io::Error),
-    #[fail(display = "{}", _0)]
-    Json(#[fail(cause)] json::BuilderError),
-    #[fail(display = "{}", _0)]
-    Msg(&'static str),
-    #[fail(display = "{}", _0)]
-    Request(#[fail(cause)] reqwest::Error),
-}
-
-impl From<io::Error> for SearchError {
-    fn from(err: io::Error) -> SearchError {
-        SearchError::Io(err)
-    }
-}
-
-impl From<json::BuilderError> for SearchError {
-    fn from(err: json::BuilderError) -> SearchError {
-        SearchError::Json(err)
-    }
-}
-
-impl From<&'static str> for SearchError {
-    fn from(err: &'static str) -> SearchError {
-        SearchError::Msg(err)
-    }
-}
-
-impl From<reqwest::Error> for SearchError {
-    fn from(err: reqwest::Error) -> SearchError {
-        SearchError::Request(err)
-    }
-}
 const JSON_ERROR_MSG: &str = "Cannot find expected json structure";
 
 #[cfg(not(test))]
@@ -86,10 +63,15 @@ fn search(read: &[u8]) -> Result<Vec<u8>, SearchError> {
     Ok(r)
 }
 
-fn search_with_cache<'a>(read: &[u8], n: usize, cache: &'a mut LockedCache) -> &'a [u8] {
-    match read[0] {
-        CLIENT_END => b"0\n",
-        CLIENT_REQUEST => {
+fn create_response<'a>(
+    read: &[u8],
+    n: usize,
+    cache: &'a mut LockedCache,
+    host_and_port: &'a str,
+) -> &'a [u8] {
+    match RequestCode::from(read[0]) {
+        RequestCode::Disconnect => b"0\n",
+        RequestCode::Convert => {
             let cache_key = read[1..(n - 1)].to_vec();
             debug!("cache_key: {:?}", &cache_key);
             if cache.contains_key(&cache_key) {
@@ -107,14 +89,13 @@ fn search_with_cache<'a>(read: &[u8], n: usize, cache: &'a mut LockedCache) -> &
                 }
             }
         }
-        CLIENT_VERSION => SERVER_VERSION.as_bytes(),
-        CLIENT_HOST => b"0.0.0.0\n",
-        _ => b"0\n",
+        RequestCode::Version => SERVER_VERSION.as_bytes(),
+        RequestCode::Name => host_and_port.as_bytes(),
     }
 
 }
 
-fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
+fn handle_client(mut stream: TcpStream, mut cache: LockedCache, host_and_port: &str) {
     loop {
         let mut read = [0; 512];
         match stream.read(&mut read) {
@@ -122,7 +103,7 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
                 if n == 0 {
                     break;
                 }
-                let result = search_with_cache(&read, n, &mut cache);
+                let result = create_response(&read, n, &mut cache, host_and_port);
                 stream.write_all(result).unwrap();
             }
             Err(err) => {
@@ -136,15 +117,17 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache) {
 fn listen(args: &docopt::ArgvMap) {
     let host_and_port = format!("{}:{}", args.get_str("--host"), args.get_str("--port"));
     println!("listen on {}", &host_and_port);
-    let listener = TcpListener::bind(&host_and_port[..]).unwrap();
+    let listener = TcpListener::bind(&host_and_port.clone()).unwrap();
     let cache = new_cache();
+    let host_and_port_n = format!("{}\n", host_and_port.clone());
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let cache = cache.clone();
+                let host_and_port = host_and_port_n.clone();
                 thread::spawn(move || {
                     let cache = cache.lock().unwrap();
-                    handle_client(stream, cache);
+                    handle_client(stream, cache, &host_and_port);
                 });
             }
             Err(_) => {
@@ -197,7 +180,7 @@ mod tests {
     use encoding::{DecoderTrap, EncoderTrap, Encoding};
 
     use super::{
-        search, search_with_cache, CLIENT_END, CLIENT_HOST, CLIENT_VERSION, SERVER_VERSION,
+        search, create_response, SERVER_VERSION,
     };
     use gskkserv::cache::new_cache;
 
@@ -221,19 +204,19 @@ mod tests {
     }
 
     #[test]
-    fn test_search_with_cache() {
+    fn test_create_response() {
         let cache = new_cache();
         assert_eq!(
-            search_with_cache(&[CLIENT_END], 1, &mut cache.lock().unwrap()),
+            create_response(&[0], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
             b"0\n"
         );
         assert_eq!(
-            search_with_cache(&[CLIENT_VERSION], 1, &mut cache.lock().unwrap()),
+            create_response(&[2], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
             SERVER_VERSION.as_bytes()
         );
         assert_eq!(
-            search_with_cache(&[CLIENT_HOST], 1, &mut cache.lock().unwrap()),
-            b"0.0.0.0\n"
+            create_response(&[3], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555\n"),
+            b"0.0.0.0:5555\n"
         );
     }
 }
