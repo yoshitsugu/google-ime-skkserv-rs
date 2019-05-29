@@ -1,8 +1,17 @@
 [package]
 name = "gskkserv"
 version = "0.1.2"
-authors = ["Kota Yoshitsugu <yoshitsugu@users.noreply.github.com>"]
+authors = ["Kota Yoshitsugu"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "skkserv using Google IME"
+repository = "https://github.com/yoshitsugu/google-ime-skkserv-rs"
+categories = ["text-processing"]
+keywords = ["skkserv", "google ime", "Japanese"]
+
+[badges]
+appveyor = { repository = "yoshitsugu/google-ime-skkserv-rs" }
+travis-ci = { repository = "yoshitsugu/google-ime-skkserv-rs" }
 
 [dependencies]
 rustc-serialize = "0.3.24"
