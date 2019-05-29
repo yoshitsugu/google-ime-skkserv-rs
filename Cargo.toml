@@ -10,7 +10,6 @@ categories = ["text-processing"]
 keywords = ["skkserv", "google ime", "Japanese"]
 
 [badges]
-appveyor = { repository = "yoshitsugu/google-ime-skkserv-rs" }
 travis-ci = { repository = "yoshitsugu/google-ime-skkserv-rs" }
 
 [dependencies]
