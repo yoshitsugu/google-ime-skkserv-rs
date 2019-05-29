@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "skkserv using Google IME"
 repository = "https://github.com/yoshitsugu/google-ime-skkserv-rs"
 categories = ["text-processing"]
-keywords = ["skkserv", "google ime", "Japanese"]
+keywords = ["skkserv", "google-ime", "Japanese"]
 
 [badges]
 travis-ci = { repository = "yoshitsugu/google-ime-skkserv-rs" }
