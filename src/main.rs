@@ -12,15 +12,15 @@ use std::thread;
 mod cache;
 mod error;
 
-use cache::{new_cache, LockedCache};
-use error::SearchError;
+use crate::cache::{new_cache, Cache, LockedCache};
+use crate::error::SearchError;
 
 enum RequestCode {
     Disconnect,
     Convert,
     Version,
     Name,
-    Invalid(u8)
+    Invalid(u8),
 }
 
 impl From<u8> for RequestCode {
@@ -34,7 +34,7 @@ impl From<u8> for RequestCode {
             code => Invalid(code),
         }
     }
-} 
+}
 
 const SERVER_VERSION: &str = "Google IME SKK Server in Rust.0.1";
 const PID_DIR: &str = "/tmp/gskkserv.pid";
@@ -68,7 +68,7 @@ fn search(buf: &[u8]) -> Result<Vec<u8>, SearchError> {
 }
 
 fn create_response<'a>(
-    buf: &[u8],
+    buf: &[u8; 512],
     n: usize,
     cache: &'a mut LockedCache,
     host_and_port: &'a str,
@@ -104,7 +104,7 @@ fn create_response<'a>(
 
 }
 
-fn handle_client(mut stream: TcpStream, mut cache: LockedCache, host_and_port: &str) {
+fn handle_client(mut stream: TcpStream, cache: Cache, host_and_port: &str) {
     loop {
         let mut buf = [0; 512];
         match stream.read(&mut buf) {
@@ -112,6 +112,7 @@ fn handle_client(mut stream: TcpStream, mut cache: LockedCache, host_and_port: &
                 if n == 0 {
                     break;
                 }
+                let mut cache = cache.lock().unwrap();
                 let result = create_response(&buf, n, &mut cache, host_and_port);
                 stream.write_all(result).unwrap();
             }
@@ -134,7 +135,6 @@ fn listen(args: &docopt::ArgvMap) {
                 let cache = cache.clone();
                 let host_and_port = host_and_port.clone();
                 thread::spawn(move || {
-                    let cache = cache.lock().unwrap();
                     handle_client(stream, cache, &host_and_port);
                 });
             }
@@ -187,9 +187,7 @@ mod tests {
     use encoding::all::{EUC_JP, UTF_8};
     use encoding::{DecoderTrap, EncoderTrap, Encoding};
 
-    use super::{
-        search, create_response, SERVER_VERSION,
-    };
+    use super::{create_response, search, SERVER_VERSION};
 
     use super::cache::new_cache;
 
@@ -216,15 +214,15 @@ mod tests {
     fn test_create_response() {
         let cache = new_cache();
         assert_eq!(
-            create_response(&[b'0'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
+            create_response(&[b'0'; 512], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
             b"0"
         );
         assert_eq!(
-            create_response(&[b'2'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
+            create_response(&[b'2'; 512], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
             SERVER_VERSION.as_bytes()
         );
         assert_eq!(
-            create_response(&[b'3'], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
+            create_response(&[b'3'; 512], 1, &mut cache.lock().unwrap(), "0.0.0.0:5555"),
             b"0.0.0.0:5555"
         );
     }
