@@ -1,12 +1,69 @@
+dist: xenial
 language: rust
-os:
-  - linux
-  - mac
-rust:
-  - stable
-  - beta
-  - nightly
+services: docker
+sudo: required
+
+env:
+  global:
+    - CRATE_NAME=gskkserv
+
 matrix:
   allow_failures:
     - rust: nightly
   fast_finish: true
+  include:
+    - env: TARGET=i686-unknown-linux-gnu
+    - env: TARGET=i686-unknown-linux-musl
+    - env: TARGET=x86_64-unknown-linux-gnu
+    - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=i686-apple-darwin
+      os: osx
+    - env: TARGET=x86_64-apple-darwin
+      os: osx  
+
+    - env: TARGET=x86_64-unknown-linux-gnu
+      rust: nightly
+    - env: TARGET=x86_64-apple-darwin
+      os: osx
+      rust: nightly
+
+before_install:
+  - set -e
+  - rustup self update
+
+install:
+  - sh ci/install.sh
+  - source ~/.cargo/env || true
+
+script:
+  - bash ci/script.sh
+
+after_script: set +e
+
+before_deploy:
+  - sh ci/before_deploy.sh
+
+deploy:
+  api_key:
+    secure: "UoyM6oxpfTn4DnhVK4BeivsSKrqh1+kBSJW+kwrhDRWZE7hiAkjB3Y742E76xSKLw7IION1fWmZyYKFc5s6it8Jjz4l5EeL0o/DD0iiLWUBkgSHnkSY29sQlakkggsT30Ms5g7H+3Dc/swIR5fyiSA2ZNnCOV+DVW+97kdcCiwGXD1QFSOyvaoQNd8WnrHBNPdcydvZf8Roqdl9GepBCh6LHUdCLuiBa5lHcaSxqbWHEld22G3oqFoX/R+HgUmoxR0WX+288hOk0dQdyXogeV0+o2zd2sRgWorh9pt/aIjlrOUjcfFBLPnGU1B0PuRXXvexzd7D7heTjddKWuXn2DaNPH+8Ezop3Z8kUjIt6hOf154HNDz+65DEjyzGeqL6ubrR2gFJhC5KErdsONGOhXJPi3ihSxgMNcugKpwwKf/yRb+JoFWDoMF2G95C8DR+j3Hfs6JMYBw7SEmJgJNcGbgdBl6Vfk65G10VgOKYwTG90uN0jJxfjijoF7JsomZ+yKRxIp7AJhGWtmwFTUImCKMzwuKYe2SWt7xX3Mv+fnt1mZA2IWgqXnWAf83ow/R5ZsYY5kPwR+lF98STQ16mlvNLOq4Ztrtalawsg2hz6tKnRUSBXiNTrZxhDQslIW0ov/yk+g7ANeCBLlTKGykUHtdljW9LtyeyKQ56eqPmcm9k="
+  file_glob: true
+  file: $CRATE_NAME-$TRAVIS_TAG-$TARGET.*
+  on:
+    condition: $TRAVIS_RUST_VERSION = stable
+    tags: true
+  provider: releases
+  skip_cleanup: true
+
+cache: cargo
+before_cache:
+  - chmod -R a+r $HOME/.cargo
+  
+branches:
+  only:
+    # release tags
+    - /^v\d+\.\d+\.\d+.*$/
+    - master
+
+notifications:
+  email:
+    on_success: never
