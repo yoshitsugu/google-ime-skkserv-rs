@@ -20,6 +20,7 @@ enum RequestCode {
     Convert,
     Version,
     Name,
+    Completion,
     Invalid(u8),
 }
 
@@ -31,6 +32,7 @@ impl From<u8> for RequestCode {
             b'1' => Convert,
             b'2' => Version,
             b'3' => Name,
+            b'4' => Completion,
             code => Invalid(code),
         }
     }
@@ -50,7 +52,7 @@ fn search_with_api(kana: &str) -> Result<String, SearchError> {
     Ok(reqwest::get(&url)?.text()?)
 }
 
-fn search(buf: &[u8]) -> Result<Vec<u8>, SearchError> {
+fn search(buf: &[u8], delimiter: &str) -> Result<Vec<u8>, SearchError> {
     let kana = EUC_JP.decode(&buf, DecoderTrap::Ignore).unwrap();
     let s = search_with_api(&kana)?;
     let json = Json::from_str(s.as_str())?;
@@ -60,11 +62,28 @@ fn search(buf: &[u8]) -> Result<Vec<u8>, SearchError> {
     let mut kanjis = "1".to_string();
     for _k in _kanjis {
         let _ks = _k.as_string().ok_or(JSON_ERROR_MSG)?;
-        kanjis = format!("{}/{}", kanjis, _ks);
+        kanjis = format!("{}{}{}", kanjis, delimiter, _ks);
     }
-    kanjis = format!("{}/\n", kanjis);
+    kanjis = format!("{}{}\n", kanjis, delimiter);
     let r = EUC_JP.encode(&kanjis, EncoderTrap::Ignore).unwrap();
     Ok(r)
+}
+
+fn load_from_cache_or_search<'a>(cache_key: Vec<u8>, cache: &'a mut LockedCache, delimiter: &str) -> &'a [u8] {
+    if cache.contains_key(&cache_key) {
+        cache.get(&cache_key).unwrap().as_slice()
+    } else {
+        match search(&cache_key, delimiter) {
+            Ok(result) => {
+                cache.insert(cache_key.clone(), result.clone());
+                cache.get(&cache_key).unwrap().as_slice()
+            }
+            Err(err) => {
+                error!("{:?}", err);
+                b"0"
+            }
+        }
+    }
 }
 
 fn create_response<'a>(
@@ -76,26 +95,10 @@ fn create_response<'a>(
     debug!("CODE: {}", buf[0]);
     match RequestCode::from(buf[0]) {
         RequestCode::Disconnect => b"0",
-        RequestCode::Convert => {
-            let cache_key = buf[1..(n - 1)].to_vec();
-            debug!("cache_key: {:?}", &cache_key);
-            if cache.contains_key(&cache_key) {
-                cache.get(&cache_key).unwrap().as_slice()
-            } else {
-                match search(&buf[1..(n - 1)]) {
-                    Ok(result) => {
-                        cache.insert(cache_key.clone(), result.clone());
-                        cache.get(&cache_key).unwrap().as_slice()
-                    }
-                    Err(err) => {
-                        error!("{:?}", err);
-                        b"0"
-                    }
-                }
-            }
-        }
+        RequestCode::Convert => load_from_cache_or_search(buf[1..(n - 1)].to_vec(), cache, "/"),
         RequestCode::Version => SERVER_VERSION.as_bytes(),
         RequestCode::Name => host_and_port.as_bytes(),
+        RequestCode::Completion => load_from_cache_or_search(buf[1..(n - 1)].to_vec(), cache, " "),
         RequestCode::Invalid(code) => {
             error!("INVALID CODE: {}", code);
             b"0"
@@ -196,7 +199,7 @@ mod tests {
         let utf8_bytes = EUC_JP
             .encode("ともえごぜん", EncoderTrap::Ignore)
             .unwrap();
-        let result = search(utf8_bytes.as_slice());
+        let result = search(utf8_bytes.as_slice(), "/");
         assert!(result.is_ok());
         let euc_jp_str = EUC_JP
             .decode(result.unwrap().as_slice(), DecoderTrap::Ignore)
