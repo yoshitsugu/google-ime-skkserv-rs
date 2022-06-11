@@ -49,7 +49,7 @@ const JSON_ERROR_MSG: &str = "Cannot find expected json structure";
 #[cfg(not(test))]
 fn search_with_api(kana: &str) -> Result<String, SearchError> {
     let url = format!("{}{}", GOOGLE_IME_URL, kana);
-    Ok(reqwest::get(&url)?.text()?)
+    Ok(reqwest::blocking::get(&url)?.text()?)
 }
 
 fn search(buf: &[u8], delimiter: &str) -> Result<Vec<u8>, SearchError> {
