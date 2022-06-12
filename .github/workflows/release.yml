@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install libssl-dev
+        run: sudo apt-get install pkg-config libssl-dev
 
       - name: Checkout repository
         uses: actions/checkout@v2
