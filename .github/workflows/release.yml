@@ -1,4 +1,4 @@
-name: Release
+name: release
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Release binary
+  release:
+    name: release
     strategy:
       matrix:
         include:
@@ -32,6 +32,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - if: matrix.os == 'ubuntu-latest'
+        run: apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev
+
       - name: Checkout repository
         uses: actions/checkout@v2
 
@@ -40,9 +43,6 @@ jobs:
         with:
           toolchain: stable
           override: true
-
-      - name: install libraries
-        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev
 
       - name: Cross build with all features
         uses: actions-rs/cargo@v1
