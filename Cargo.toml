@@ -1,23 +1,22 @@
 [package]
 name = "gskkserv"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Kota Yoshitsugu"]
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "skkserv using Google IME"
 repository = "https://github.com/yoshitsugu/google-ime-skkserv-rs"
 categories = ["text-processing"]
 keywords = ["skkserv", "google-ime", "Japanese"]
 
-[badges]
-travis-ci = { repository = "yoshitsugu/google-ime-skkserv-rs" }
-
 [dependencies]
-rustc-serialize = "0.3.24"
+serde_json = "1"
 encoding = "0.2.33"
 docopt = "1.1.1"
-daemonize = "0.4"
-reqwest = { version = "0.11.14", features = ["blocking"] }
-log = "0.4.0"
-env_logger = "0.10.0"
-thiserror = "1.0.37"
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "query", "rustls"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+
+[target.'cfg(unix)'.dependencies]
+daemonize = "0.5"

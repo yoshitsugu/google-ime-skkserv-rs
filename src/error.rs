@@ -1,13 +1,12 @@
-use thiserror::Error;
-use rustc_serialize::json;
 use std::io;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SearchError {
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]
-    Json(#[from] json::BuilderError),
+    Json(#[from] serde_json::Error),
     #[error("{0}")]
     Msg(&'static str),
     #[error(transparent)]

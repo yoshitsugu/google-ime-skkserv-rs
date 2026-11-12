@@ -6,9 +6,12 @@ on:
       - '*.*.*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   release:
-    name: release
+    if: github.ref_type == 'tag'
     strategy:
       matrix:
         include:
@@ -20,39 +23,28 @@ jobs:
             target: x86_64-unknown-linux-musl
             artifact_name: gskkserv
             asset_name: gskkserv-x86_64-unknown-linux-musl
-          - os: ubuntu-latest
-            target: x86_64-pc-windows-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
             artifact_name: gskkserv.exe
-            asset_name: gskkserv-x86_64-pc-windows-gnu.exe
+            asset_name: gskkserv-x86_64-pc-windows-msvc.exe
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: gskkserv
             asset_name: gskkserv-x86_64-apple-darwin
-
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: gskkserv
+            asset_name: gskkserv-aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-
     steps:
-      - if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install build-essential
-
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
-
-      - name: Cross build with all features
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true 
-          command: build
-          args: --release --target ${{ matrix.target }} --all-features --verbose
-
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@2.1.1
+          targets: ${{ matrix.target }}
+      - if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --locked --release --target ${{ matrix.target }}
+      - uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
